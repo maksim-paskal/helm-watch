@@ -80,7 +80,7 @@ func (a *Application) getNamespace() string {
 	return a.getFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
 }
 
-func (a *Application) runInternalWaitFowJobs(ctx context.Context) error { //nolint:cyclop
+func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:cyclop
 	filter := a.getFlagValue("--filter", "")
 	if filter == "" {
 		return errors.New("no filter provided")
@@ -141,7 +141,7 @@ func (a *Application) runInternal(ctx context.Context) error {
 
 	switch a.Args[1] {
 	case "wait-for-jobs":
-		return a.runInternalWaitFowJobs(ctx)
+		return a.runInternalWaitForJobs(ctx)
 	default:
 		return errors.Errorf("unknown %s internal command", a.Args[1])
 	}
