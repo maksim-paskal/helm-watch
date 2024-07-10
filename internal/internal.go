@@ -88,7 +88,7 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 
 	logrus.Info("Using filter: ", filter)
 
-	hasFailedJobs := false
+	failedJobs := []string{}
 
 	logrus.Info("Waiting for jobs...")
 
@@ -103,7 +103,7 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 		total := len(jobs.Items)
 		succeeded := 0
 		failed := 0
-		hasFailedJobs = false
+		failedJobs = []string{}
 
 		logrus.Debug("Total jobs: ", total)
 
@@ -122,13 +122,9 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 				logrus.Debug("Job succeeded")
 
 				failed++
+
+				failedJobs = append(failedJobs, job.Name)
 			}
-		}
-
-		if failed > 0 {
-			logrus.Debug("hasFailedJobs")
-
-			hasFailedJobs = true
 		}
 
 		if total == succeeded+failed {
@@ -143,8 +139,8 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 		}
 	}
 
-	if hasFailedJobs {
-		return errors.New("some jobs failed")
+	if len(failedJobs) > 0 {
+		return errors.Errorf("jobs %s was failed", strings.Join(failedJobs, ", "))
 	}
 
 	return nil
