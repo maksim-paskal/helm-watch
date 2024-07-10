@@ -57,8 +57,8 @@ func (a *Application) Init() error {
 	return nil
 }
 
-func (a *Application) getFlagValue(flag, defaultValue string) string {
-	re2 := regexp.MustCompile(`(` + flag + `)[ =][\"\']?([\w-]+)[\"\']?`)
+func (a *Application) GetFlagValue(flag, defaultValue string) string {
+	re2 := regexp.MustCompile(`(` + flag + `)[ =][\"\']?([^\s\"\']+)[\"\']?`)
 	cmd := strings.Join(a.Args, " ")
 
 	if !re2.MatchString(cmd) {
@@ -73,15 +73,15 @@ func (a *Application) getReleaseName() string {
 		return a.Args[2]
 	}
 
-	return a.getFlagValue("--release-name", os.Getenv("RELEASE_NAME"))
+	return a.GetFlagValue("--release-name", os.Getenv("RELEASE_NAME"))
 }
 
 func (a *Application) getNamespace() string {
-	return a.getFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
+	return a.GetFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
 }
 
 func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:cyclop,funlen
-	filter := a.getFlagValue("--filter", "")
+	filter := a.GetFlagValue("--filter", "")
 	if filter == "" {
 		return errors.New("no filter provided")
 	}
