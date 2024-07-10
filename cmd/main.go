@@ -20,6 +20,10 @@ func main() {
 		ForceColors:      true,
 	})
 
+	if os.Getenv("DEBUG") == "true" {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
+
 	signalChanInterrupt := make(chan os.Signal, 1)
 	signal.Notify(signalChanInterrupt, syscall.SIGINT, syscall.SIGTERM)
 

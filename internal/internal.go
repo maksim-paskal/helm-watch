@@ -80,11 +80,13 @@ func (a *Application) getNamespace() string {
 	return a.getFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
 }
 
-func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:cyclop
+func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:cyclop,funlen
 	filter := a.getFlagValue("--filter", "")
 	if filter == "" {
 		return errors.New("no filter provided")
 	}
+
+	logrus.Info("Using filter: ", filter)
 
 	hasFailedJobs := false
 
@@ -103,21 +105,35 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 		failed := 0
 		hasFailedJobs = false
 
+		logrus.Debug("Total jobs: ", total)
+
 		for _, job := range jobs.Items {
+			logrus := logrus.WithFields(logrus.Fields{
+				"job": job.Name,
+			})
+
 			if job.Status.Succeeded > 0 {
+				logrus.Debug("Job succeeded")
+
 				succeeded++
 			}
 
 			if job.Status.Failed > 0 {
+				logrus.Debug("Job succeeded")
+
 				failed++
 			}
 		}
 
 		if failed > 0 {
+			logrus.Debug("hasFailedJobs")
+
 			hasFailedJobs = true
 		}
 
 		if total == succeeded+failed {
+			logrus.Info("All jobs finished")
+
 			break
 		}
 
