@@ -86,7 +86,7 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 		return errors.New("no filter provided")
 	}
 
-	logrus.Info("Using filter: ", filter)
+	logrus.Info("Using jobs filter: ", filter)
 
 	failedJobs := []string{}
 
@@ -177,13 +177,14 @@ func (a *Application) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	jobLogger := k8slogger.NewJobLogger()
+	podLogger := k8slogger.NewPodLogger()
 
-	jobLogger.Clientset = a.clientset
-	jobLogger.Namespace = a.namespace
-	jobLogger.ReleaseName = a.releaseName
+	podLogger.Clientset = a.clientset
+	podLogger.Namespace = a.namespace
+	podLogger.ReleaseName = a.releaseName
+	podLogger.PodLabelSelector = a.GetFlagValue("--pod-filter", "batch.kubernetes.io/job-name")
 
-	go jobLogger.Start(ctx)
+	go podLogger.Start(ctx)
 
 	switch a.Args[0] {
 	case "internal":

@@ -24,15 +24,15 @@ const (
 	annotationReleaseName = annotationPrefix + "/release-name"
 )
 
-func NewJobLogger() *JobLogger {
-	return &JobLogger{
+func NewPodLogger() *PodLogger {
+	return &PodLogger{
 		PodLabelSelector: "batch.kubernetes.io/job-name",
 		TailLines:        10, //nolint:mnd
 		SinceSeconds:     1,
 	}
 }
 
-type JobLogger struct {
+type PodLogger struct {
 	Clientset        *kubernetes.Clientset
 	ReleaseName      string
 	Namespace        string
@@ -42,7 +42,7 @@ type JobLogger struct {
 	watchedPods      sync.Map
 }
 
-func (l *JobLogger) printPodLogs(ctx context.Context, podName, container string) error {
+func (l *PodLogger) printLogs(ctx context.Context, podName, container string) error {
 	mapKey := podName + container
 
 	if _, ok := l.watchedPods.Load(mapKey); ok {
@@ -81,7 +81,7 @@ func (l *JobLogger) printPodLogs(ctx context.Context, podName, container string)
 }
 
 // return valid containers.
-func (l *JobLogger) checkPodAnnotations(annotations map[string]string) ([]string, bool) {
+func (l *PodLogger) checkPodAnnotations(annotations map[string]string) ([]string, bool) {
 	containersText, ok := annotations[annotationContainers]
 	if !ok {
 		logrus.Debug("pod has no annotation")
@@ -98,7 +98,7 @@ func (l *JobLogger) checkPodAnnotations(annotations map[string]string) ([]string
 	return strings.Split(containersText, ","), true
 }
 
-func (l *JobLogger) run(ctx context.Context) error {
+func (l *PodLogger) run(ctx context.Context) error {
 	watcher, err := l.Clientset.CoreV1().Pods(l.Namespace).Watch(ctx, metav1.ListOptions{
 		LabelSelector: l.PodLabelSelector,
 		Watch:         true,
@@ -136,7 +136,7 @@ func (l *JobLogger) run(ctx context.Context) error {
 			}
 
 			go func(container corev1.Container) {
-				if err := l.printPodLogs(ctx, pod.Name, container.Name); err != nil {
+				if err := l.printLogs(ctx, pod.Name, container.Name); err != nil {
 					logrus.Error(err)
 				}
 			}(container)
@@ -146,9 +146,10 @@ func (l *JobLogger) run(ctx context.Context) error {
 	return nil
 }
 
-func (l *JobLogger) Start(ctx context.Context) {
+func (l *PodLogger) Start(ctx context.Context) {
 	logrus.Infof("Using namespace: %s", l.Namespace)
 	logrus.Infof("Using release-name: %s", l.ReleaseName)
+	logrus.Infof("Using pods filter: %s", l.PodLabelSelector)
 
 	if err := l.run(ctx); err != nil {
 		logrus.Error(err)
