@@ -1,0 +1,40 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-4"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      annotations:
+        helm-watch/release-name: {{ .Release.Name }}
+        helm-watch/containers: init
+      labels:
+        app: init
+    spec:
+      terminationGracePeriodSeconds: 0
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 1000
+      containers:
+      - name: init
+        image: alpine:3.12
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        args:
+        - sh
+        - -c
+        - |
+          set -ex
+          for run in $(seq 10); do
+            echo "Waiting..."
+            # wait for 5 seconds before check again
+            sleep 5
+          done

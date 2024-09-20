@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -29,6 +31,7 @@ func NewPodLogger() *PodLogger {
 		PodLabelSelector: "batch.kubernetes.io/job-name",
 		TailLines:        10, //nolint:mnd
 		SinceSeconds:     1,
+		PrintExtended:    os.Getenv("HELM_WATCH_EXTENDED") == "true",
 	}
 }
 
@@ -40,9 +43,58 @@ type PodLogger struct {
 	TailLines        int64
 	SinceSeconds     int64
 	watchedPods      sync.Map
+	watchedEvents    sync.Map
+	PrintExtended    bool
 }
 
-func (l *PodLogger) printLogs(ctx context.Context, podName, container string) error {
+func (l *PodLogger) printEventsLogs(ctx context.Context, podName, container string) error {
+	mapKey := podName + container
+
+	if _, ok := l.watchedEvents.Load(mapKey); ok {
+		logrus.Debugf("events %s already watched", mapKey)
+
+		return nil
+	}
+
+	l.watchedEvents.Store(mapKey, true)
+
+	opts := metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", podName, l.Namespace),
+		Watch:         true,
+	}
+
+	logrus.Infof("Watching events %s", opts.FieldSelector)
+
+	watcher, err := l.Clientset.CoreV1().Events(l.Namespace).Watch(ctx, opts)
+	if err != nil {
+		return errors.Wrap(err, "failed to list events")
+	}
+
+	for event := range watcher.ResultChan() {
+		event, ok := event.Object.(*corev1.Event)
+		if !ok {
+			logrus.Debug("event is not a corev1.Event")
+
+			continue
+		}
+
+		l.print(podName, container, event.Message)
+	}
+
+	return nil
+}
+
+func (l *PodLogger) print(podName, container, message string) {
+	now := time.Now().Format(time.TimeOnly)
+
+	if l.PrintExtended {
+		fmt.Printf("[%s](%s/%s) %s\n", now, podName, container, message) //nolint:forbidigo
+	} else {
+		fmt.Printf("[%s] %s\n", now, message) //nolint:forbidigo
+	}
+}
+
+func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container string) error {
 	mapKey := podName + container
 
 	if _, ok := l.watchedPods.Load(mapKey); ok {
@@ -73,7 +125,7 @@ func (l *PodLogger) printLogs(ctx context.Context, podName, container string) er
 		scanner := bufio.NewScanner(podLogs)
 
 		for scanner.Scan() {
-			fmt.Printf("(%s/%s) %s\n", podName, container, scanner.Text()) //nolint:forbidigo
+			l.print(podName, container, scanner.Text())
 		}
 	}
 
@@ -99,10 +151,14 @@ func (l *PodLogger) checkPodAnnotations(annotations map[string]string) ([]string
 }
 
 func (l *PodLogger) run(ctx context.Context) error {
-	watcher, err := l.Clientset.CoreV1().Pods(l.Namespace).Watch(ctx, metav1.ListOptions{
+	opts := metav1.ListOptions{
 		LabelSelector: l.PodLabelSelector,
 		Watch:         true,
-	})
+	}
+
+	logrus.Infof("Watching pods %s", opts.LabelSelector)
+
+	watcher, err := l.Clientset.CoreV1().Pods(l.Namespace).Watch(ctx, opts)
 	if err != nil {
 		return errors.Wrap(err, "failed to list pods")
 	}
@@ -129,6 +185,12 @@ func (l *PodLogger) run(ctx context.Context) error {
 				continue
 			}
 
+			go func(container corev1.Container) {
+				if err := l.printEventsLogs(ctx, pod.Name, container.Name); err != nil {
+					logrus.Error(err)
+				}
+			}(container)
+
 			if pod.Status.Phase != corev1.PodRunning {
 				logrus.Debug("pod is not running")
 
@@ -136,7 +198,7 @@ func (l *PodLogger) run(ctx context.Context) error {
 			}
 
 			go func(container corev1.Container) {
-				if err := l.printLogs(ctx, pod.Name, container.Name); err != nil {
+				if err := l.printContainerLogs(ctx, pod.Name, container.Name); err != nil {
 					logrus.Error(err)
 				}
 			}(container)
@@ -149,7 +211,6 @@ func (l *PodLogger) run(ctx context.Context) error {
 func (l *PodLogger) Start(ctx context.Context) {
 	logrus.Infof("Using namespace: %s", l.Namespace)
 	logrus.Infof("Using release-name: %s", l.ReleaseName)
-	logrus.Infof("Using pods filter: %s", l.PodLabelSelector)
 
 	if err := l.run(ctx); err != nil {
 		logrus.Error(err)
