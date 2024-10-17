@@ -29,7 +29,6 @@ const (
 func NewPodLogger() *PodLogger {
 	return &PodLogger{
 		PodLabelSelector: "batch.kubernetes.io/job-name",
-		TailLines:        10, //nolint:mnd
 		SinceSeconds:     1,
 		PrintExtended:    os.Getenv("HELM_WATCH_EXTENDED") == "true",
 	}
@@ -40,7 +39,6 @@ type PodLogger struct {
 	ReleaseName      string
 	Namespace        string
 	PodLabelSelector string
-	TailLines        int64
 	SinceSeconds     int64
 	watchedPods      sync.Map
 	watchedEvents    sync.Map
@@ -107,7 +105,6 @@ func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container s
 		Container:    container,
 		Follow:       true,
 		SinceSeconds: &l.SinceSeconds,
-		TailLines:    &l.TailLines,
 	})
 
 	podLogs, err := request.Stream(ctx)

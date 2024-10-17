@@ -32,6 +32,7 @@ spec:
         - sh
         - -c
         - |
+          echo "Start the init container..."
           set -ex
           for run in $(seq 10); do
             echo "Waiting..."
