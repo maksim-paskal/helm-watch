@@ -40,9 +40,13 @@ type PodLogger struct {
 	Namespace        string
 	PodLabelSelector string
 	SinceSeconds     int64
-	watchedPods      sync.Map
-	watchedEvents    sync.Map
-	PrintExtended    bool
+
+	watchedPods       sync.Map
+	watchedContainers sync.Map
+	watchedEvents     sync.Map
+
+	PrintExtended  bool
+	FatalOnPodFail bool
 }
 
 func (l *PodLogger) printEventsLogs(ctx context.Context, podName, container string) error {
@@ -95,7 +99,7 @@ func (l *PodLogger) print(podName, container, message string) {
 func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container string) error {
 	mapKey := podName + container
 
-	if _, ok := l.watchedPods.Load(mapKey); ok {
+	if _, ok := l.watchedContainers.Load(mapKey); ok {
 		logrus.Debugf("pod %s already watched", mapKey)
 
 		return nil
@@ -113,8 +117,8 @@ func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container s
 	}
 	defer podLogs.Close()
 
-	l.watchedPods.Store(mapKey, true)
-	defer l.watchedPods.Delete(mapKey)
+	l.watchedContainers.Store(mapKey, true)
+	defer l.watchedContainers.Delete(mapKey)
 
 	logrus.Infof("Watching pod %s/%s", podName, container)
 
@@ -147,6 +151,20 @@ func (l *PodLogger) checkPodAnnotations(annotations map[string]string) ([]string
 	return strings.Split(containersText, ","), true
 }
 
+// check if pod is failed.
+func (l *PodLogger) checkPodStatus(pod *corev1.Pod) {
+	// if pod is watched and failed, exit.
+	if _, ok := l.watchedPods.Load(pod.Name); ok && pod.Status.Phase == corev1.PodFailed {
+		message := fmt.Sprintf("pod %s/%s has failed", pod.Namespace, pod.Name)
+
+		if l.FatalOnPodFail {
+			logrus.Fatal(message)
+		} else {
+			logrus.Warn(message)
+		}
+	}
+}
+
 func (l *PodLogger) run(ctx context.Context) error {
 	opts := metav1.ListOptions{
 		LabelSelector: l.PodLabelSelector,
@@ -175,6 +193,18 @@ func (l *PodLogger) run(ctx context.Context) error {
 			continue
 		}
 
+		l.checkPodStatus(pod)
+
+		// watch only running pods
+		if pod.Status.Phase != corev1.PodRunning {
+			logrus.Debug("pod is not running")
+
+			continue
+		}
+
+		// remember that we are watching this pod
+		l.watchedPods.Store(pod.Name, true)
+
 		for _, container := range pod.Spec.Containers {
 			if !slices.Contains(validContainers, container.Name) {
 				logrus.Debugf("container %s is not in list", container.Name)
@@ -187,12 +217,6 @@ func (l *PodLogger) run(ctx context.Context) error {
 					logrus.Error(err)
 				}
 			}(container)
-
-			if pod.Status.Phase != corev1.PodRunning {
-				logrus.Debug("pod is not running")
-
-				continue
-			}
 
 			go func(container corev1.Container) {
 				if err := l.printContainerLogs(ctx, pod.Name, container.Name); err != nil {

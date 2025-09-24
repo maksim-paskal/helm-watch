@@ -1,4 +1,4 @@
-KUBECONFIG=$(HOME)/.kube/kurento-stage
+export KUBECONFIG=$(HOME)/.kube/kurento-stage
 image=paskalmaksim/helm-watch:dev
 namespace=test-helm-watch
 

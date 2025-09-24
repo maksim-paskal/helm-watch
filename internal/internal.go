@@ -174,14 +174,12 @@ func (a *Application) runShellCommand(ctx context.Context) error {
 }
 
 func (a *Application) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	podLogger := k8slogger.NewPodLogger()
 
 	podLogger.Clientset = a.clientset
 	podLogger.Namespace = a.namespace
 	podLogger.ReleaseName = a.releaseName
+	podLogger.FatalOnPodFail = a.GetFlagValue("--fatal-on-pod-fail", "false") == "true"
 	podLogger.PodLabelSelector = a.GetFlagValue("--pod-filter", "batch.kubernetes.io/job-name")
 
 	go podLogger.Start(ctx)

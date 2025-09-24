@@ -11,6 +11,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	timeToWaitForLogsFlushing     = 5 * time.Second
+	timeToWaitForGracefulShutdown = 10 * time.Second
+)
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -50,10 +55,13 @@ func main() {
 
 		cancel()
 		logrus.Warn("Waiting for graceful shutdown...")
-		time.Sleep(10 * time.Second) //nolint:mnd
+		time.Sleep(timeToWaitForGracefulShutdown)
 	})
 
 	if err := application.Run(ctx); err != nil {
 		logrus.Fatal(err)
 	}
+
+	logrus.Infof("Waiting %s for logs to flush...", timeToWaitForLogsFlushing.String())
+	time.Sleep(timeToWaitForLogsFlushing)
 }
