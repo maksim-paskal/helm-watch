@@ -17,14 +17,17 @@ import (
 )
 
 type Application struct {
-	Args        []string
-	clientset   *kubernetes.Clientset
-	namespace   string
-	releaseName string
+	Args           []string
+	clientset      *kubernetes.Clientset
+	namespace      string
+	releaseName    string
+	waitBeforeExit time.Duration
 }
 
 func NewApplication() *Application {
-	return &Application{}
+	return &Application{
+		waitBeforeExit: 10 * time.Second, //nolint:mnd
+	}
 }
 
 func (a *Application) Init() error {
@@ -80,7 +83,14 @@ func (a *Application) getNamespace() string {
 	return a.GetFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
 }
 
-func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:cyclop,funlen
+func (a *Application) wait(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
+	}
+}
+
+func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:funlen
 	filter := a.GetFlagValue("--filter", "")
 	if filter == "" {
 		return errors.New("no filter provided")
@@ -133,13 +143,13 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 			break
 		}
 
-		select {
-		case <-ctx.Done():
-		case <-time.After(time.Second):
-		}
+		a.wait(ctx, time.Second)
 	}
 
 	if len(failedJobs) > 0 {
+		// Wait for logs to be printed before exiting with error
+		a.wait(ctx, a.waitBeforeExit)
+
 		return errors.Errorf("jobs %s was failed", strings.Join(failedJobs, ", "))
 	}
 
@@ -166,7 +176,8 @@ func (a *Application) runShellCommand(ctx context.Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	if err != nil {
 		return errors.Wrap(err, "failed to run command")
 	}
 
@@ -186,11 +197,13 @@ func (a *Application) Run(ctx context.Context) error {
 
 	switch a.Args[0] {
 	case "internal":
-		if err := a.runInternal(ctx); err != nil {
+		err := a.runInternal(ctx)
+		if err != nil {
 			return errors.Wrap(err, "failed to run internal command")
 		}
 	default:
-		if err := a.runShellCommand(ctx); err != nil {
+		err := a.runShellCommand(ctx)
+		if err != nil {
 			return errors.Wrap(err, "failed to execute shell command")
 		}
 	}

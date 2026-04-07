@@ -165,7 +165,7 @@ func (l *PodLogger) checkPodStatus(pod *corev1.Pod) {
 	}
 }
 
-func (l *PodLogger) run(ctx context.Context) error {
+func (l *PodLogger) run(ctx context.Context) error { //nolint:funlen
 	opts := metav1.ListOptions{
 		LabelSelector: l.PodLabelSelector,
 		Watch:         true,
@@ -213,13 +213,15 @@ func (l *PodLogger) run(ctx context.Context) error {
 			}
 
 			go func(container corev1.Container) {
-				if err := l.printEventsLogs(ctx, pod.Name, container.Name); err != nil {
+				err := l.printEventsLogs(ctx, pod.Name, container.Name)
+				if err != nil {
 					logrus.Error(err)
 				}
 			}(container)
 
 			go func(container corev1.Container) {
-				if err := l.printContainerLogs(ctx, pod.Name, container.Name); err != nil {
+				err := l.printContainerLogs(ctx, pod.Name, container.Name)
+				if err != nil {
 					logrus.Error(err)
 				}
 			}(container)
@@ -233,7 +235,8 @@ func (l *PodLogger) Start(ctx context.Context) {
 	logrus.Infof("Using namespace: %s", l.Namespace)
 	logrus.Infof("Using release-name: %s", l.ReleaseName)
 
-	if err := l.run(ctx); err != nil {
+	err := l.run(ctx)
+	if err != nil {
 		logrus.Error(err)
 	}
 }
