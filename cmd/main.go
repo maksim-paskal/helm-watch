@@ -44,7 +44,8 @@ func main() {
 
 	application.Args = os.Args[1:]
 
-	if err := application.Init(); err != nil {
+	err := application.Init()
+	if err != nil {
 		logrus.Fatal(err)
 	}
 
@@ -58,7 +59,8 @@ func main() {
 		time.Sleep(timeToWaitForGracefulShutdown)
 	})
 
-	if err := application.Run(ctx); err != nil {
+	err = application.Run(ctx)
+	if err != nil {
 		logrus.Fatal(err)
 	}
 
