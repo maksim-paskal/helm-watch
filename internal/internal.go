@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maksim-paskal/helm-watch/pkg/k8slogger"
+	"github.com/maksim-paskal/helm-watch/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,17 +18,14 @@ import (
 )
 
 type Application struct {
-	Args           []string
-	clientset      *kubernetes.Clientset
-	namespace      string
-	releaseName    string
-	waitBeforeExit time.Duration
+	Args        []string
+	clientset   *kubernetes.Clientset
+	namespace   string
+	releaseName string
 }
 
 func NewApplication() *Application {
-	return &Application{
-		waitBeforeExit: 10 * time.Second, //nolint:mnd
-	}
+	return &Application{}
 }
 
 func (a *Application) Init() error {
@@ -83,14 +81,7 @@ func (a *Application) getNamespace() string {
 	return a.GetFlagValue("-n|--namespace", os.Getenv("NAMESPACE"))
 }
 
-func (a *Application) wait(ctx context.Context, d time.Duration) {
-	select {
-	case <-ctx.Done():
-	case <-time.After(d):
-	}
-}
-
-func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //nolint:funlen
+func (a *Application) runInternalWaitForJobs(ctx context.Context) error {
 	filter := a.GetFlagValue("--filter", "")
 	if filter == "" {
 		return errors.New("no filter provided")
@@ -143,13 +134,10 @@ func (a *Application) runInternalWaitForJobs(ctx context.Context) error { //noli
 			break
 		}
 
-		a.wait(ctx, time.Second)
+		utils.SleepContext(ctx, time.Second)
 	}
 
 	if len(failedJobs) > 0 {
-		// Wait for logs to be printed before exiting with error
-		a.wait(ctx, a.waitBeforeExit)
-
 		return errors.Errorf("jobs %s was failed", strings.Join(failedJobs, ", "))
 	}
 

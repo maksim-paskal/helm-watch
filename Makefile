@@ -1,5 +1,5 @@
 export KUBECONFIG=$(HOME)/.kube/kurento-stage
-image=paskalmaksim/helm-watch:dev
+image=paskalmaksim/helm-watch:$(shell git rev-parse --short HEAD)
 namespace=test-helm-watch
 
 test:
@@ -8,9 +8,7 @@ test:
 	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run -v
 
 build:
-	go run github.com/goreleaser/goreleaser/v2@latest build --clean --skip=validate --snapshot
-	mv ./dist/helm-watch_linux_amd64_v1/helm-watch helm-watch
-	docker build --pull --push . -t $(image)
+	docker build --platform linux/amd64,linux/arm64 -f Dockerfile.local --pull --push . -t $(image)
 
 clean:
 	kubectl delete ns $(namespace) || true

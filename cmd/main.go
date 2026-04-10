@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	timeToWaitForLogsFlushing     = 5 * time.Second
-	timeToWaitForGracefulShutdown = 10 * time.Second
+	timeToWaitForPreStop          = 10 * time.Second
+	timeToWaitForGracefulShutdown = 5 * time.Second
 )
 
-func main() {
+func main() { //nolint:funlen
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -33,6 +33,9 @@ func main() {
 	signal.Notify(signalChanInterrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
+		logrus.Debug("Start watch signal activity")
+		defer logrus.Debug("Stop watch signal activity")
+
 		<-signalChanInterrupt
 		logrus.Warn("Received interrupt signal")
 		cancel()
@@ -49,21 +52,31 @@ func main() {
 		logrus.Fatal(err)
 	}
 
-	logrus.RegisterExitHandler(func() {
+	wait := func(reason string, d time.Duration) {
+		logrus.Infof("Waiting during %s for %s...", reason, d.String())
+		time.Sleep(d)
+	}
+
+	stopApplication := func() {
+		logrus.Warn("Stoping application...")
+
 		if ctx.Err() != nil {
+			wait("graceful shutdown", timeToWaitForGracefulShutdown)
+
 			return
 		}
 
+		wait("prestop", timeToWaitForPreStop)
+		logrus.Info("Canceling context")
 		cancel()
-		logrus.Warn("Waiting for graceful shutdown...")
-		time.Sleep(timeToWaitForGracefulShutdown)
-	})
+		wait("graceful shutdown", timeToWaitForGracefulShutdown)
+	}
+	defer stopApplication()
+
+	logrus.RegisterExitHandler(stopApplication)
 
 	err = application.Run(ctx)
 	if err != nil {
 		logrus.Fatal(err)
 	}
-
-	logrus.Infof("Waiting %s for logs to flush...", timeToWaitForLogsFlushing.String())
-	time.Sleep(timeToWaitForLogsFlushing)
 }
