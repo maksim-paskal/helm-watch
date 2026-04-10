@@ -1,0 +1,8 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /app
+COPY . .
+RUN go build -o helm-watch ./cmd/main.go
+
+FROM alpine:latest
+COPY --from=builder /app/helm-watch /helm-watch
+ENTRYPOINT ["/helm-watch"]

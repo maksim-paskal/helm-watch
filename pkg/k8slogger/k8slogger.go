@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maksim-paskal/helm-watch/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +25,9 @@ const (
 
 	// optional annotation, release name to filter logs.
 	annotationReleaseName = annotationPrefix + "/release-name"
+
+	// if no logs for this time, stop watching.
+	noActivityTime = 30 * time.Second
 )
 
 func NewPodLogger() *PodLogger {
@@ -66,6 +70,7 @@ func (l *PodLogger) printEventsLogs(ctx context.Context, podName, container stri
 	}
 
 	logrus.Infof("Watching events %s", opts.FieldSelector)
+	defer logrus.Infof("Stopped watching events %s", opts.FieldSelector)
 
 	watcher, err := l.Clientset.CoreV1().Events(l.Namespace).Watch(ctx, opts)
 	if err != nil {
@@ -96,7 +101,10 @@ func (l *PodLogger) print(podName, container, message string) {
 	}
 }
 
-func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container string) error {
+func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container string) error { //nolint:funlen
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	mapKey := podName + container
 
 	if _, ok := l.watchedContainers.Load(mapKey); ok {
@@ -109,6 +117,8 @@ func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container s
 		Container:    container,
 		Follow:       true,
 		SinceSeconds: &l.SinceSeconds,
+
+		InsecureSkipTLSVerifyBackend: true,
 	})
 
 	podLogs, err := request.Stream(ctx)
@@ -121,13 +131,42 @@ func (l *PodLogger) printContainerLogs(ctx context.Context, podName, container s
 	defer l.watchedContainers.Delete(mapKey)
 
 	logrus.Infof("Watching pod %s/%s", podName, container)
+	defer logrus.Infof("Stopped watching pod %s/%s", podName, container)
+
+	lastLogTime := time.Now()
+
+	go func() {
+		logrus.Debug("Start watch log activity")
+		defer logrus.Debug("Stop watch log activity")
+
+		for ctx.Err() == nil {
+			logrus.Debugf("Log activity check, last log time: %s", lastLogTime.Format(time.TimeOnly))
+
+			if time.Since(lastLogTime) > noActivityTime {
+				logrus.Warnf("no logs in pod %s/%s for %s", podName, container, noActivityTime)
+
+				cancel()
+			}
+
+			utils.SleepContext(ctx, time.Second)
+		}
+	}()
 
 	for ctx.Err() == nil {
 		scanner := bufio.NewScanner(podLogs)
 
 		for scanner.Scan() {
+			lastLogTime = time.Now()
+
 			l.print(podName, container, scanner.Text())
 		}
+
+		err := scanner.Err()
+		if err != nil {
+			return errors.Wrap(err, "error reading logs")
+		}
+
+		utils.SleepContext(ctx, time.Second)
 	}
 
 	return nil
@@ -165,7 +204,7 @@ func (l *PodLogger) checkPodStatus(pod *corev1.Pod) {
 	}
 }
 
-func (l *PodLogger) run(ctx context.Context) error { //nolint:funlen
+func (l *PodLogger) run(ctx context.Context) error { //nolint:funlen,gocognit,cyclop
 	opts := metav1.ListOptions{
 		LabelSelector: l.PodLabelSelector,
 		Watch:         true,
@@ -213,16 +252,30 @@ func (l *PodLogger) run(ctx context.Context) error { //nolint:funlen
 			}
 
 			go func(container corev1.Container) {
-				err := l.printEventsLogs(ctx, pod.Name, container.Name)
-				if err != nil {
-					logrus.Error(err)
+				logrus.Debug("Start watch printEventsLogs")
+				defer logrus.Debug("Stop watch printEventsLogs")
+
+				for ctx.Err() == nil {
+					err := l.printEventsLogs(ctx, pod.Name, container.Name)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						logrus.Error(err)
+					}
+
+					utils.SleepContext(ctx, time.Second)
 				}
 			}(container)
 
 			go func(container corev1.Container) {
-				err := l.printContainerLogs(ctx, pod.Name, container.Name)
-				if err != nil {
-					logrus.Error(err)
+				logrus.Debug("Start watch printContainerLogs")
+				defer logrus.Debug("Stop watch printContainerLogs")
+
+				for ctx.Err() == nil {
+					err := l.printContainerLogs(ctx, pod.Name, container.Name)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						logrus.Error(err)
+					}
+
+					utils.SleepContext(ctx, time.Second)
 				}
 			}(container)
 		}
